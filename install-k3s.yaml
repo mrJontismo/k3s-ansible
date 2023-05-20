@@ -1,0 +1,39 @@
+---
+- name: Install dependencies
+  hosts: servers
+  become: true
+  tasks:
+    - name: Install curl package
+      apt:
+        name: curl
+        state: present
+
+- name: Install K3s server on first server node
+  hosts: servers[0]
+  become: true
+  tasks:
+    - name: Install K3s on the first node
+      shell: curl -sfL https://get.k3s.io | sh -s - server \
+              --tls-san cluster-1.nurminen.home --tls-san 192.168.2.2 \
+              --cluster-init
+
+    - name: Extract agent token from the first node
+      shell: cat /var/lib/rancher/k3s/server/node-token
+      register: agent_token
+      changed_when: false
+      run_once: true
+
+    - name: Set agent token as a host fact
+      set_fact:
+        agent_token_value: "{{ agent_token.stdout }}"
+      run_once: true
+
+- name: Install K3s server to the rest of the nodes
+  hosts: servers[1:]
+  become: true
+  tasks:
+    - name: Install K3s on other nodes
+      shell: curl -sfL https://get.k3s.io | sh -s - server \
+              --token="{{ hostvars[groups['servers'][0]].agent_token_value }}" \
+              --tls-san cluster-1.nurminen.home --tls-san 192.168.2.2 \
+              --server "https://{{ hostvars[groups['servers'][0]]['inventory_hostname'] }}:6443"
